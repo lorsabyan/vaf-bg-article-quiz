@@ -2,6 +2,8 @@
 
 This project is a web-based application that allows users to generate quizzes from article content using Google's Gemini AI. Users can input an article (HTML format), provide custom instructions, select a Gemini model, and set the generation temperature. The application then calls the Gemini API to produce a quiz in JSON format, which is subsequently rendered as an interactive, step-by-step quiz.
 
+**Live Demo:** [https://lorsabyan.github.io/vaf-bg-article-quiz/](https://lorsabyan.github.io/vaf-bg-article-quiz/)
+
 ## Features
 
 *   **Gemini API Integration:** Utilizes the Google Gemini API for quiz generation.
