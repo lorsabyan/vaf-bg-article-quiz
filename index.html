@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Quiz Generator | Brainograph Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for better UX */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Dialog animation */
+        .modal-enter {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        .modal-enter-active {
+            opacity: 1;
+            transform: scale(1);
+            transition: opacity 300ms, transform 300ms;
+        }
+        .modal-leave {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .modal-leave-active {
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity 300ms, transform 300ms;
+        }
+        /* Scrollbar styling for textareas */
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        textarea::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        /* Simple loader */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .question-option:hover:not([disabled]) { /* Only hover effect if not disabled */
+            background-color: #f0f9ff; /* sky-50 */
+        }
+        /* Custom classes for option labels - will be applied via JS */
+        .correct-option-label {
+            background-color: #dcfce7 !important; /* Tailwind green-100 */
+            border-left: 4px solid #22c55e !important; /* Tailwind green-500 */
+        }
+        .incorrect-option-label {
+            background-color: #fee2e2 !important; /* Tailwind red-100 */
+            border-left: 4px solid #ef4444 !important; /* Tailwind red-500 */
+        }
+        .question-block.hidden { /* This class is not actively used for hiding/showing individual questions anymore */
+            display: none;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-sky-700">Brainograph Quiz Generator</h1>
+            <p class="text-gray-600 mt-2">Generate quizzes from articles using Gemini AI.</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-xl mb-6">
+            <h2 class="text-xl font-semibold text-sky-700 mb-3">Setup Gemini API Key</h2>
+            <div class="mb-3">
+                <label for="apiKeyInput" class="block text-sm font-medium text-gray-700 mb-1">Enter your Gemini API Key:</label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="password" id="apiKeyInput" placeholder="Enter your API Key here" class="flex-grow p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-sky-500 focus:border-sky-500 text-sm">
+                    <button id="saveApiKeyButton" class="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 px-5 rounded-lg shadow-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-opacity-50">
+                        Save & Initialize API
+                    </button>
+                </div>
+            </div>
+            <div id="apiKeyStatusMessage" class="text-sm mt-2"></div>
+             <p class="text-xs text-gray-500 mt-2">
+                Your API Key is stored in your browser's local storage for convenience. It is not sent to any server other than Google's Gemini API.
+            </p>
+        </div>
+
+
+        <div class="bg-white p-6 rounded-xl shadow-xl text-center">
+            <button id="openQuizDialogButton" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50" disabled>
+                Create Quiz from Article
+            </button>
+            <p id="openQuizDisabledMessage" class="text-xs text-red-500 mt-1">Please save a valid API key above to enable quiz generation.</p>
+        </div>
+
+        <div id="quizDialog" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center p-4 z-50 hidden modal-enter">
+            <div class="bg-white p-6 md:p-8 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-semibold text-sky-700">Generate Quiz</h2>
+                    <button id="closeDialogButton" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+
+                <form id="quizGenerationForm">
+                    <div class="mb-4">
+                        <label for="userInstructions" class="block text-sm font-medium text-gray-700 mb-1">Quiz Generation Instructions:</label>
+                        <textarea id="userInstructions" rows="4" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-sky-500 focus:border-sky-500 text-sm"></textarea>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="temperature" class="block text-sm font-medium text-gray-700 mb-1">Temperature: <span id="temperatureValue" class="font-semibold text-sky-600">0.7</span></label>
+                        <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-sky-600">
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="modelSelection" class="block text-sm font-medium text-gray-700 mb-1">Select Model:</label>
+                        <select id="modelSelection" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-sky-500 focus:border-sky-500 text-sm">
+                            <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro Preview (gemini-2.5-pro-preview-03-25)</option>
+                            <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash Preview 04-17 (gemini-2.5-flash-preview-04-17)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (gemini-2.0-flash)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-6">
+                        <label for="articleContent" class="block text-sm font-medium text-gray-700 mb-1">Article Content (HTML):</label>
+                        <textarea id="articleContent" rows="8" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-sky-500 focus:border-sky-500 text-sm"></textarea>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <button type="submit" id="generateQuizButton" class="w-full sm:w-auto flex-grow bg-sky-600 hover:bg-sky-700 text-white font-semibold py-2.5 px-5 rounded-lg shadow-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50">
+                            Generate Quiz
+                        </button>
+                        <button type="button" id="cancelDialogButton" class="w-full sm:w-auto bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2.5 px-5 rounded-lg shadow-sm transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="mt-8 bg-white p-6 rounded-xl shadow-xl">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-xl font-semibold text-sky-700">AI Output:</h2>
+                <div>
+                    <button id="showJsonButton" class="text-sm text-sky-600 hover:text-sky-800 underline focus:outline-none hidden">Show Raw JSON</button>
+                    <button id="showQuizUIButton" class="text-sm text-sky-600 hover:text-sky-800 underline focus:outline-none hidden">Show Interactive Quiz</button>
+                </div>
+            </div>
+            <div id="progressIndicator" class="hidden text-center py-4">
+                <div class="loader"></div>
+                <p class="text-gray-600 text-sm mt-2">Generating your quiz, please wait...</p>
+            </div>
+            
+            <pre id="responseArea" class="bg-gray-50 p-4 rounded-lg text-sm overflow-x-auto min-h-[100px] whitespace-pre-wrap break-all">Your generated quiz (JSON) will appear here...</pre>
+            
+            <div id="interactiveQuizArea" class="hidden">
+                 </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from 'https://esm.sh/@google/genai@0.12.0';
+
+        // --- API Key Management ---
+        let USER_API_KEY = ""; 
+        let genAI; 
+
+        // DOM Elements (those NOT inside interactiveQuizArea can be global)
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const saveApiKeyButton = document.getElementById('saveApiKeyButton');
+        const apiKeyStatusMessage = document.getElementById('apiKeyStatusMessage');
+        
+        const openQuizDialogButton = document.getElementById('openQuizDialogButton');
+        const openQuizDisabledMessage = document.getElementById('openQuizDisabledMessage');
+        const quizDialog = document.getElementById('quizDialog');
+        const closeDialogButton = document.getElementById('closeDialogButton');
+        const cancelDialogButton = document.getElementById('cancelDialogButton');
+        const quizGenerationForm = document.getElementById('quizGenerationForm');
+
+        const userInstructionsInput = document.getElementById('userInstructions');
+        const temperatureInput = document.getElementById('temperature');
+        const temperatureValueDisplay = document.getElementById('temperatureValue');
+        const modelSelectionInput = document.getElementById('modelSelection');
+        const articleContentInput = document.getElementById('articleContent');
+        
+        const generateQuizButton = document.getElementById('generateQuizButton');
+        const responseArea = document.getElementById('responseArea'); // For raw JSON
+        const progressIndicator = document.getElementById('progressIndicator');
+        
+        const interactiveQuizArea = document.getElementById('interactiveQuizArea'); // Main container for quiz UI
+
+        const showJsonButton = document.getElementById('showJsonButton');
+        const showQuizUIButton = document.getElementById('showQuizUIButton');
+
+        let currentQuizData = null; 
+        let currentQuestionIndex = 0;
+        let score = 0;
+
+        // --- PREFILLED VALUES & SCHEMA ---
+        const PREFILLED_USER_INSTRUCTIONS = `Generate a comprehensive single-choice quiz in Armenian, formatted as a JSON object with OpenAPI scheme provided below. Output clean JSON from the provided HTML article provided below. The article is written in Armenian. Prioritize generating a large number of relevant and diverse questions.`;
+        const PREFILLED_ARTICLE_HTML = `<article id="377"><h2>Ուրմիա լիճ</h2><p>Ուրմիա լիճը գտնվում է Հայկական լեռնաշխարհի հարավարևելյան մասում՝ Ուրմիայի ընդարձակ գոգավորության սահմաններում՝ ներկայիս Իրանի Իսլամական հանրապետության հյուսիսարևմտյան հատվածում։ </p><p><br></p><p>Ուրմիա լիճը վաղ ժամանակներում իր մեծության շնորհիվ կոչվել է նաև Արևմուտքի ծով («Արևելյան ծովի»՝ Կասպից ծովի համեմատությամբ)։ Վանի թագավոր Մենուայի սեպագիր արձանագրություններում հիշատակվում է «Ուրմե» երկրամասը։ Այն գտնվել է Վանա լճի արևմտյան և հարավարևմտյան մասում։ Ենթադրում ենք, որ Ուրմիա լճի անունը կապված է եղել հենց այդ երկրամասի հետ։ Լիճը ունեցել է նաև այլ անվանումներ։ Նրան կոչել են նաև Կապուտան լիճ, Մովսես Խորենացին այն անվանել է Կապուտան «ծով», հունական աղբյուրներում հիշատակված են Մանթիա, Մեդի, Սպավտա կամ Սպաուտա անունները, որոնք նույնպես նշանակում են կապույտ։ Լիճը հանդիպում է նաև Թիլ անվանումով։ 1926 թ. լիճը վերանվանվել է Ռեզայի, ի պատիվ Ռեզա Փեհլեվի շահի: 1970 թ․ լճին վերադարձվել է նախկին անունը:</p><p><br></p><p>Ուրմիա լիճը միջօրեականի ուղղությամբ ձգված տեկտոնական մի ընդարձակ գոգավորություն է։ Լճի երկարությունը մինչև մակարդակի ժամանակակից իջեցումը մոտ 140 կմ էր, լայնությունը տատանվում էր մոտ 40-55 կմ։ Ջրի հայելու մակերեսը շուրջ 5800 կմ² էր, ջրհավաք ավազանը՝ 50 000 կմ², առավելագույն խորությունը մոտ 15 մ էր և գտնվում էր ծովի մակարդակից մոտ 1275 մ բարձրության վրա։ </p><p><br></p><p>Մինչև 20-րդ դարի վերջը Ուրմիան համարվում էր Հայկական լեռնաշխարհի և ընդհանրապես Մերձավոր Արևելքի երեք խոշոր լճերից ամենամեծը, սակայն այժմ այն իր տեղը զիջել է Վանա լճին։ Ուրմիա լճի էկոլոգիական աղետի պատճառները և՛ մարդածին են, և՛ բնական։ Քանզի կլիմայի փոփոխությունից զատ՝ լճի վրա բացասական ազդեցություն է ունենում նաև մարդկանց կողմից կառուցված ամբարտակները, որոնցով լիճ թափվող գետերի ջուրն օգտագործում են ոռոգման նպատակներով: Վերջին տասնամյակների ընթացքում լիճը ցամաքել է 2/3-ով:</p><p><br></p><p>Ուրմիա լիճն անհոսք, աղի լիճ է: Աղիությունը 150-230 ‰ է։ Աղի պարունակությունը տատանվում է 80-110 ‰ գարնանը և աճում է մինչև 260-280 ‰՝ ուշ աշնանը: Պատճառը ամռան ժամանակահատվածում լճից ինտենսիվ գոլորշացումն ու քաղցրահամ ջրի մուտքի սահմանափակվածությունն է: Հիմնական աղերն են քլորը, նատրիումը և սուլֆատները: Լճի ափերին կուտակվող աղը արդյունահանվում է արդյունաբերական մասշտաբներով:</p><p><br></p><p>Սնվում է հիմնականում ստորերկրյա և մթնոլորտային տեղումների ջրերով, քանի որ լիճ թափվող գետերը քիչ են և սակավաջուր: Ոռոգման նպատակով իրականացվող ջրառի արդյունքում այդ գետերը երբեմն իսպառ ցամաքում են: </p><p><br></p><p>Լճի ափամերձ գոտին ամբողջությամբ ծածկված է լավային թմբերով և քարացրոններով: Ուրմիա լիճ են թափվում մոտ 12 գետ, որոնցից առավել նշանավոր են Վարարակը, Սագարտուն, Թաթավանը, Արուջը, Զարևանը (իր Տարոնագետ վտակով), Էլոյձորը, Բերդաձորը, Բարանդուռը, Երասխը, Ջահարանը: Նշված գետերի դելտաները ճահճակալված են:</p><p><br></p><p>Լճում կա 60 կղզի՝ գլխավորապես հարավային մասում: Խոշորներն են Էշակ, Թելա, Ձիերի, Շահի կղզիները: Արևմտյան ափի մոտ են Ուրմիա, Շահպուր քաղաքները: Օրգանական կյանքը լճի ջրերում սահմանափակվում է աղի նկատմամբ հանդուրժող մի քանի միկրոսկոպիկ տեսակներով, որոնցով սնվող ջրլող և ճահճային թռչունները հավաքվում են այստեղ մեծ քանակներով: Թռչնաշխարհից հայտնի են ֆլամինգոն և հավալուսնը:</p><p><br></p><p>Լիճն ուսումնասիրել են մի շարք գիտնականներ։ Նրանք ենթադրում են, որ լիճն ի սկզբանե հոսուն է եղել և Ամարդոս (Սեֆիտռուդ) գետի միջոցով կապ է ունեցել Կասպից ծովի հետ: Սոհունդ լեռան արտավիժմամբ կապը Կասպից ծովի հետ կտրվել է: Կարծիք կա նաև, որ մինչ լավային արգելափակումը Ուրմիան Խոյի դաշտով կապ է ունեցել Արաքս գետի հետ:</p><p><br></p><p>Տարվա տարբեր եղանակներին լճի մակարդակը և ափագիծը մեծապես փոխվում են: Վերջին տասնամյակներին Ուրմիա լիճն էկոլոգիական աղետի գոտու է վերածվել։ Դեռևս 1916 թ. լիճն ունեցել է այլ գծագրություն, այն ծանծաղ նեղուցով տարածվել է դեպի արևելք, դեպի Թավրիզի գոգավորությունը: Այստեղ եղել է Շահի հրաբխային կղզին: Այսօր նեղուցը ամբողջությամբ վերացել է և դարձել ընդարձակ, աղապատված հարթություն, իսկ կղզին վերածվել է թերակղզու։ </p><p><br></p><p>Դեռևս 1967 թ. հիմնվել է Ուրմիա Ազգային պարկը, որն ընդգրկում է լիճն իր ջրհավաք ավազանով։ Իրանական կառավարության կողմից մշտապես իրականացվում են լճի աղակալումը կանխարգելող միջոցառումներ, սակայն հետազոտությունները բացասական արդյունք են տալիս․ այսօր անզեն աչքով անգամ տեսանելի է լճի մակերեսի փոփոխությունը։ Իրանն սկսել է Արաքս գետի ջրերն Ուրմիա լիճ ուղղելու նախագծի իրագործումը։</article>`;
+        const JSON_SCHEMA_STRING = `{
+  "type": "object",
+  "properties": {
+    "quizTitle": { "type": "string" },
+    "quizDescription": { "type": "string" },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": { "type": "string" },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "answer": { "type": "number" },
+          "articleIds": { "type": "array", "items": { "type": "string" } },
+          "explanation": { "type": "string" },
+          "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] }
+        },
+        "required": ["question", "options", "answer", "articleIds", "explanation", "difficulty"]
+      }
+    }
+  },
+  "required": ["quizTitle", "quizDescription", "questions"]
+}`;
+
+        // --- Initialize API Key and SDK ---
+        function initializeGenAI(apiKey) {
+            if (!apiKey || apiKey.trim() === "") {
+                apiKeyStatusMessage.innerHTML = '<span class="text-red-600 font-semibold">API Key cannot be empty.</span>';
+                openQuizDialogButton.disabled = true;
+                openQuizDisabledMessage.classList.remove('hidden');
+                genAI = null; 
+                return false;
+            }
+            try {
+                genAI = new GoogleGenAI({ apiKey: apiKey }); 
+                USER_API_KEY = apiKey; 
+                localStorage.setItem('geminiApiKey', apiKey); 
+                apiKeyStatusMessage.innerHTML = '<span class="text-green-600 font-semibold">Gemini API Initialized Successfully!</span>';
+                openQuizDialogButton.disabled = false;
+                openQuizDisabledMessage.classList.add('hidden');
+                console.info("GoogleGenAI SDK Initialized with provided key (using object).");
+                return true;
+            } catch (error) {
+                console.error("SDK Initialization Error (raw object):", error);
+                let detailMessage;
+                if (error instanceof Error && error.message) {
+                    detailMessage = error.message;
+                } else if (typeof error === 'string') {
+                    detailMessage = error;
+                } else if (error && typeof error === 'object') {
+                    if (error.message && typeof error.message === 'string') { 
+                        detailMessage = error.message;
+                    } else {
+                        try {
+                            detailMessage = JSON.stringify(error);
+                            if (detailMessage === '{}' && error.toString && error.toString() !== {}.toString()) {
+                                detailMessage = error.toString();
+                            } else if (detailMessage === '{}') {
+                                detailMessage = "Received an empty object as error. Check console for raw object details.";
+                            }
+                        } catch (e) {
+                            if (error.toString && error.toString() !== {}.toString()) {
+                                detailMessage = error.toString();
+                            } else {
+                                detailMessage = "Could not stringify error object. Check console for raw object details.";
+                            }
+                        }
+                    }
+                } else if (error) {
+                    detailMessage = String(error);
+                } else {
+                    detailMessage = "An unknown error occurred. Check console for raw object details.";
+                }
+                apiKeyStatusMessage.innerHTML = `<span class="text-red-600 font-semibold">SDK Initialization Error: ${detailMessage} Please check the console.</span>`;
+                openQuizDialogButton.disabled = true;
+                openQuizDisabledMessage.classList.remove('hidden');
+                genAI = null; 
+                return false;
+            }
+        }
+
+        saveApiKeyButton.addEventListener('click', () => {
+            const keyFromInput = apiKeyInput.value.trim();
+            initializeGenAI(keyFromInput);
+        });
+        
+        window.addEventListener('load', () => {
+            const storedApiKey = localStorage.getItem('geminiApiKey');
+            if (storedApiKey) {
+                apiKeyInput.value = storedApiKey;
+                initializeGenAI(storedApiKey);
+            } else {
+                apiKeyStatusMessage.innerHTML = '<span class="text-yellow-600 font-semibold">Please enter your Gemini API Key to begin.</span>';
+                openQuizDialogButton.disabled = true;
+                openQuizDisabledMessage.classList.remove('hidden');
+            }
+        });
+
+        function openDialog() {
+            if (!genAI) {
+                 apiKeyStatusMessage.innerHTML = '<span class="text-red-600 font-semibold">Gemini API is not initialized. Please save a valid API key first.</span>';
+                 return;
+            }
+            userInstructionsInput.value = PREFILLED_USER_INSTRUCTIONS;
+            articleContentInput.value = PREFILLED_ARTICLE_HTML;
+            temperatureInput.value = 0.7;
+            temperatureValueDisplay.textContent = "0.7";
+            modelSelectionInput.value = "gemini-2.5-pro-preview-03-25";
+            quizDialog.classList.remove('hidden');
+            quizDialog.classList.remove('modal-leave', 'modal-leave-active');
+            quizDialog.classList.add('modal-enter-active');
+        }
+
+        function closeDialog() {
+            quizDialog.classList.remove('modal-enter-active');
+            quizDialog.classList.add('modal-leave-active');
+            setTimeout(() => {
+                quizDialog.classList.add('hidden');
+            }, 300);
+        }
+
+        openQuizDialogButton.addEventListener('click', openDialog);
+        closeDialogButton.addEventListener('click', closeDialog);
+        cancelDialogButton.addEventListener('click', closeDialog);
+
+        temperatureInput.addEventListener('input', (e) => {
+            temperatureValueDisplay.textContent = e.target.value;
+        });
+
+        // --- UI Toggle Functions ---
+        showJsonButton.addEventListener('click', () => {
+            interactiveQuizArea.classList.add('hidden');
+            responseArea.classList.remove('hidden');
+            showJsonButton.classList.add('hidden');
+            if (currentQuizData) showQuizUIButton.classList.remove('hidden'); 
+        });
+
+        showQuizUIButton.addEventListener('click', () => {
+            responseArea.classList.add('hidden');
+            interactiveQuizArea.classList.remove('hidden');
+            showQuizUIButton.classList.add('hidden');
+            if (currentQuizData) showJsonButton.classList.remove('hidden');
+        });
+
+        // --- Step-by-Step Quiz Logic ---
+        function buildQuizDOMStructure() {
+            interactiveQuizArea.innerHTML = `
+                 <div id="quizHeaderInternal" class="mb-6"></div>
+                 <div id="quizQuestionsContainerInternal"></div>
+                 <div id="quizControlsInternal" class="mt-6 flex justify-end">
+                    <button id="nextQuestionButtonInternal" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hidden">Հաջորդ հարցը</button>
+                 </div>
+                 <div id="finalScoreAreaInternal" class="hidden mt-6 p-4 bg-sky-100 border border-sky-300 rounded-lg text-center"></div>
+            `;
+            // Re-attach event listener for the new next question button
+            const nextBtnInternal = document.getElementById('nextQuestionButtonInternal');
+            if (nextBtnInternal) {
+                nextBtnInternal.onclick = loadNextQuestion;
+            }
+        }
+
+
+        function resetQuizState() {
+            currentQuizData = null;
+            currentQuestionIndex = 0;
+            score = 0;
+            
+            const headerDiv = document.getElementById('quizHeaderInternal');
+            if (headerDiv) headerDiv.innerHTML = '';
+            
+            const questionsContainer = document.getElementById('quizQuestionsContainerInternal');
+            if (questionsContainer) questionsContainer.innerHTML = '';
+            
+            const scoreArea = document.getElementById('finalScoreAreaInternal');
+            if (scoreArea) {
+                scoreArea.classList.add('hidden');
+                scoreArea.innerHTML = '';
+            }
+            
+            const nextBtn = document.getElementById('nextQuestionButtonInternal');
+            if (nextBtn) {
+                nextBtn.classList.add('hidden');
+                nextBtn.textContent = 'Հաջորդ հարցը';
+                // onclick is re-assigned when structure is built/rebuilt
+            }
+        }
+
+        function displayQuizHeader(quizData) {
+            const headerDiv = document.getElementById('quizHeaderInternal');
+            if (!headerDiv) return;
+            headerDiv.innerHTML = ''; 
+            const titleEl = document.createElement('h3');
+            titleEl.className = 'text-2xl font-bold text-sky-700';
+            titleEl.textContent = quizData.quizTitle;
+            headerDiv.appendChild(titleEl);
+
+            if (quizData.quizDescription) {
+                const descriptionEl = document.createElement('p');
+                descriptionEl.className = 'text-gray-600 mt-1 mb-4';
+                descriptionEl.textContent = quizData.quizDescription;
+                headerDiv.appendChild(descriptionEl);
+            }
+        }
+
+        function displayQuestion(questionIndex) {
+            const questionsContainer = document.getElementById('quizQuestionsContainerInternal');
+            const nextBtn = document.getElementById('nextQuestionButtonInternal');
+
+            if (!questionsContainer || !currentQuizData || !currentQuizData.questions || questionIndex >= currentQuizData.questions.length) {
+                console.error("Cannot display question, container or data missing/invalid.", questionsContainer, currentQuizData, questionIndex);
+                return; 
+            }
+            questionsContainer.innerHTML = ''; 
+
+            const question = currentQuizData.questions[questionIndex];
+            const questionBlock = document.createElement('div');
+            questionBlock.className = 'question-block p-4 border border-gray-200 rounded-lg shadow-sm bg-white';
+            questionBlock.id = `question-block-${questionIndex}`; // Unique ID for the question block
+
+            const questionText = document.createElement('p');
+            questionText.className = 'font-semibold text-gray-800 mb-1';
+            questionText.textContent = `${questionIndex + 1}. ${question.question}`;
+            questionBlock.appendChild(questionText);
+
+            if(question.difficulty) {
+                const difficultyText = document.createElement('p');
+                difficultyText.className = 'text-xs text-gray-500 mb-3';
+                difficultyText.textContent = `Բարդություն: ${question.difficulty}`;
+                questionBlock.appendChild(difficultyText);
+            }
+
+            const optionsList = document.createElement('div');
+            optionsList.className = 'space-y-2';
+            question.options.forEach((option, optionIndex) => {
+                const optionLabel = document.createElement('label');
+                optionLabel.className = 'flex items-center p-3 border border-gray-200 rounded-md cursor-pointer transition-colors duration-150 question-option';
+                
+                const radioButton = document.createElement('input');
+                radioButton.type = 'radio';
+                radioButton.name = `question-${questionIndex}`; // Radios for the same question need same name
+                radioButton.value = optionIndex; 
+                radioButton.className = 'mr-3 h-4 w-4 text-sky-600 border-gray-300 focus:ring-sky-500';
+                
+                const optionText = document.createElement('span');
+                optionText.textContent = option;
+                optionText.className = 'text-gray-700';
+
+                optionLabel.appendChild(radioButton);
+                optionLabel.appendChild(optionText);
+                optionsList.appendChild(optionLabel);
+            });
+            questionBlock.appendChild(optionsList);
+
+            const checkAnswerButton = document.createElement('button');
+            checkAnswerButton.textContent = 'Ստուգել պատասխանը';
+            checkAnswerButton.id = `check-answer-btn-${questionIndex}`; // Unique ID for check button
+            checkAnswerButton.className = 'mt-4 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md';
+            checkAnswerButton.onclick = () => checkCurrentAnswer(questionIndex);
+            questionBlock.appendChild(checkAnswerButton);
+            
+            const feedbackEl = document.createElement('div');
+            feedbackEl.id = `feedback-${questionIndex}`; // Unique ID for feedback
+            feedbackEl.className = 'mt-3 p-3 rounded-md text-sm hidden'; 
+            questionBlock.appendChild(feedbackEl);
+
+            questionsContainer.appendChild(questionBlock);
+            if (nextBtn) nextBtn.classList.add('hidden'); 
+        }
+
+        function checkCurrentAnswer(questionIndex) {
+            if (!currentQuizData) return;
+            const questionData = currentQuizData.questions[questionIndex];
+            const questionBlock = document.getElementById(`question-block-${questionIndex}`); // Get current question block
+            const feedbackEl = document.getElementById(`feedback-${questionIndex}`); // Get feedback element for current q
+            const selectedOptionInput = questionBlock ? questionBlock.querySelector(`input[name="question-${questionIndex}"]:checked`) : null;
+            const checkButton = document.getElementById(`check-answer-btn-${questionIndex}`);
+            const nextBtn = document.getElementById('nextQuestionButtonInternal');
+
+
+            if (!questionBlock || !feedbackEl) {
+                console.error("Could not find question block or feedback element for index:", questionIndex);
+                return;
+            }
+            
+            questionBlock.querySelectorAll(`input[name="question-${questionIndex}"]`).forEach(radio => radio.disabled = true);
+            if (checkButton) checkButton.disabled = true;
+
+            questionBlock.querySelectorAll('label.question-option').forEach(label => {
+                label.classList.remove('correct-option-label', 'incorrect-option-label');
+            });
+
+            feedbackEl.innerHTML = ''; 
+            feedbackEl.classList.add('hidden'); 
+
+            if (selectedOptionInput) {
+                const selectedAnswerIndex = parseInt(selectedOptionInput.value); 
+                const correctAnswerIndex = questionData.answer; 
+                const selectedOptionLabel = selectedOptionInput.parentElement; 
+
+                if (selectedAnswerIndex === correctAnswerIndex) {
+                    score++;
+                    feedbackEl.innerHTML = `<strong class="text-green-700">Ճիշտ է!</strong>`;
+                    if (selectedOptionLabel) {
+                       selectedOptionLabel.classList.add('correct-option-label');
+                    }
+                } else {
+                    feedbackEl.innerHTML = `<strong class="text-red-700">Սխալ է:</strong> Ճիշտ պատասխանն էր՝ "${questionData.options[correctAnswerIndex]}"`;
+                     if (selectedOptionLabel) {
+                       selectedOptionLabel.classList.add('incorrect-option-label');
+                    }
+                    const correctOptionInput = questionBlock.querySelector(`input[name="question-${questionIndex}"][value="${correctAnswerIndex}"]`);
+                    if (correctOptionInput && correctOptionInput.parentElement) {
+                        correctOptionInput.parentElement.classList.add('correct-option-label');
+                    }
+                }
+                
+                if (questionData.explanation) {
+                    const explanationP = document.createElement('p');
+                    explanationP.className = 'mt-2 p-2 rounded-md bg-gray-100 border-l-4 border-gray-400 text-gray-700 text-sm'; 
+                    explanationP.innerHTML = `<strong>Բացատրություն:</strong> ${questionData.explanation}`;
+                    feedbackEl.appendChild(explanationP);
+                }
+                feedbackEl.classList.remove('hidden');
+
+            } else { 
+                feedbackEl.innerHTML = `<strong class="text-yellow-600">Պատասխանված չէ:</strong>`;
+                 if (questionData.explanation) { 
+                    const explanationP = document.createElement('p');
+                    explanationP.className = 'mt-2 p-2 rounded-md bg-gray-100 border-l-4 border-gray-400 text-gray-700 text-sm';
+                    explanationP.innerHTML = `<strong>Բացատրություն:</strong> ${questionData.explanation}`;
+                    feedbackEl.appendChild(explanationP);
+                }
+                feedbackEl.classList.remove('hidden');
+            }
+            
+            if (nextBtn) {
+                nextBtn.classList.remove('hidden');
+                if (currentQuestionIndex >= currentQuizData.questions.length - 1) {
+                    nextBtn.textContent = 'Տեսնել արդյունքները';
+                } else {
+                    nextBtn.textContent = 'Հաջորդ հարցը';
+                }
+            }
+        }
+        
+        function loadNextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuizData && currentQuestionIndex < currentQuizData.questions.length) {
+                displayQuestion(currentQuestionIndex);
+            } else {
+                displayFinalScore();
+            }
+        }
+        // Event listener for nextQuestionButton is (re-)assigned in buildQuizDOMStructure
+
+        function displayFinalScore() {
+            const questionsContainer = document.getElementById('quizQuestionsContainerInternal');
+            const nextBtn = document.getElementById('nextQuestionButtonInternal');
+            const scoreArea = document.getElementById('finalScoreAreaInternal');
+
+            if (questionsContainer) questionsContainer.innerHTML = ''; 
+            if (nextBtn) nextBtn.classList.add('hidden');
+            if (!scoreArea || !currentQuizData) return; 
+
+            scoreArea.classList.remove('hidden');
+            scoreArea.innerHTML = `<h4 class="text-xl font-bold text-sky-800">Վիկտորինան ավարտված է!</h4>
+                                 <p class="text-lg text-sky-700 mt-2">Ձեր միավորները՝ ${score} / ${currentQuizData.questions.length}-ից</p>
+                                 <button id="restartQuizButtonInternal" class="mt-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md">Կրկին փորձել</button>`;
+            
+            const restartBtn = document.getElementById('restartQuizButtonInternal');
+            if (restartBtn) {
+                restartBtn.onclick = () => {
+                    displayInteractiveQuizUI(currentQuizData); // Restart with the same data
+                };
+            }
+        }
+
+
+        function displayInteractiveQuizUI(quizData) {
+            buildQuizDOMStructure(); // Rebuilds the DOM and attaches nextQuestionButton listener
+            resetQuizState(); 
+            currentQuizData = quizData; 
+
+            responseArea.classList.add('hidden'); 
+            interactiveQuizArea.classList.remove('hidden'); 
+            showJsonButton.classList.remove('hidden'); 
+            showQuizUIButton.classList.add('hidden');
+
+            if (!quizData || typeof quizData.quizTitle === 'undefined' || typeof quizData.questions === 'undefined' || !Array.isArray(quizData.questions)) {
+                interactiveQuizArea.classList.add('hidden'); 
+                responseArea.classList.remove('hidden'); 
+                responseArea.innerHTML += `<p class="text-red-500 font-semibold mt-2">Սխալ: Վիկտորինայի տվյալների անվավեր ձևաչափ UI-ի համար։</p>`;
+                console.error("Invalid quiz data for UI generation:", quizData);
+                showJsonButton.classList.add('hidden'); 
+                showQuizUIButton.classList.add('hidden');
+                return; 
+            }
+            
+            displayQuizHeader(quizData);
+            displayQuestion(currentQuestionIndex); 
+        }
+
+
+        // --- API Call Logic ---
+        quizGenerationForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!genAI || !genAI.models || typeof genAI.models.generateContent !== 'function') { 
+                responseArea.innerHTML = '<span class="text-red-600 font-semibold">Error: Gemini AI SDK not properly initialized or `genAI.models.generateContent` is not available. Please check API key and SDK version.</span>';
+                return;
+            }
+
+            const userInstructions = userInstructionsInput.value.trim();
+            const articleHtml = articleContentInput.value.trim();
+            const selectedModelName = modelSelectionInput.value;
+            const selectedTemperature = parseFloat(temperatureInput.value);
+
+            if (!userInstructions || !articleHtml) {
+                responseArea.innerHTML = '<span class="text-red-600 font-semibold">Please ensure all fields (instructions and article content) are filled.</span>';
+                return;
+            }
+
+            const fullPrompt = `${userInstructions}\n\nOpenAPI JSON scheme\n---\n${JSON_SCHEMA_STRING}\n\nHTML article\n---\n${articleHtml}`;
+            
+            interactiveQuizArea.classList.add('hidden'); 
+            responseArea.classList.remove('hidden'); 
+            responseArea.textContent = ''; 
+            showJsonButton.classList.add('hidden');
+            showQuizUIButton.classList.add('hidden');
+
+
+            progressIndicator.classList.remove('hidden');
+            generateQuizButton.disabled = true;
+            generateQuizButton.textContent = 'Generating...';
+            closeDialog(); 
+
+            try {
+                const safetySettingsList = [
+                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                ];
+                const generationConfigObject = { temperature: selectedTemperature };
+
+                const result = await genAI.models.generateContent({
+                    model: selectedModelName, 
+                    contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+                    generationConfig: generationConfigObject,
+                    safetySettings: safetySettingsList,
+                });
+                
+                let rawTextOutput = "";
+
+                if (result && result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0 &&
+                    result.candidates[0].content.parts[0].text !== undefined) {
+                    
+                    rawTextOutput = result.candidates[0].content.parts.map(part => part.text || "").join("");
+                    
+                    let cleanJsonString = rawTextOutput;
+                    if (cleanJsonString.startsWith("```json\n")) {
+                        cleanJsonString = cleanJsonString.substring(7); 
+                        if (cleanJsonString.endsWith("\n```")) {
+                             cleanJsonString = cleanJsonString.substring(0, cleanJsonString.length - 4); 
+                        } else if (cleanJsonString.endsWith("```")) {
+                             cleanJsonString = cleanJsonString.substring(0, cleanJsonString.length - 3); 
+                        }
+                    } else if (cleanJsonString.startsWith("```\n")) { 
+                        cleanJsonString = cleanJsonString.substring(4);
+                         if (cleanJsonString.endsWith("\n```")) {
+                             cleanJsonString = cleanJsonString.substring(0, cleanJsonString.length - 4);
+                        } else if (cleanJsonString.endsWith("```")) {
+                             cleanJsonString = cleanJsonString.substring(0, cleanJsonString.length - 3);
+                        }
+                    }
+                    cleanJsonString = cleanJsonString.trim(); 
+
+                    responseArea.textContent = cleanJsonString; 
+                    
+                    try {
+                        const jsonObj = JSON.parse(cleanJsonString);
+                        displayInteractiveQuizUI(jsonObj);  
+                    } catch (jsonError) {
+                        console.warn("Cleaned string was not valid JSON, cannot display interactive quiz.", jsonError, "Cleaned string:", cleanJsonString);
+                        responseArea.classList.remove('hidden');
+                        interactiveQuizArea.classList.add('hidden');
+                        showJsonButton.classList.add('hidden'); 
+                        showQuizUIButton.classList.add('hidden');
+                        const errorMsgEl = document.createElement('p');
+                        errorMsgEl.className = "text-red-500 font-semibold mt-4";
+                        errorMsgEl.textContent = "Սխալ: Ստացված պատասխանը վավեր JSON չէ (նույնիսկ մաքրելուց հետո)։ Հում տեքստը ցուցադրված է վերևում։";
+                        responseArea.appendChild(errorMsgEl);
+                    }
+                } else { 
+                    console.error("Unexpected response structure or no text found in API response.", result);
+                    let blockReason = "";
+                    if (result && result.promptFeedback && result.promptFeedback.blockReason) {
+                        blockReason = ` Block Reason: ${result.promptFeedback.blockReason}.`;
+                        if (result.promptFeedback.safetyRatings) {
+                           blockReason += ` Safety Ratings: ${JSON.stringify(result.promptFeedback.safetyRatings)}`;
+                        }
+                    }
+                    if (!blockReason && result && result.candidates && result.candidates.length > 0) {
+                        const firstCandidate = result.candidates[0];
+                        if (firstCandidate.finishReason === "SAFETY" && firstCandidate.safetyRatings) {
+                             blockReason += ` Candidate Finish Reason: SAFETY. Safety Ratings: ${JSON.stringify(firstCandidate.safetyRatings)}`;
+                        }
+                    }
+                    throw new Error(`Unexpected response structure or no text found.${blockReason} Check console for the full API response.`);
+                }
+
+            } catch (error) { 
+                console.error("Error during quiz generation or display:", error);
+                let errorMessageText = "Սխալ: Չհաջողվեց ստանալ պատասխան։";
+                if (error instanceof Error && error.message) {
+                     if (error.message.toLowerCase().includes("sdk") || error.message.toLowerCase().includes("api") || error.message.toLowerCase().includes("network") || error.message.toLowerCase().includes("quota")) {
+                        errorMessageText = error.message;
+                    } else {
+                        errorMessageText = `Սխալ: ${error.message}`;
+                    }
+                } else if (typeof error === 'string') {
+                    errorMessageText = `Սխալ: ${error}`;
+                }
+                responseArea.innerHTML = `<span class="text-red-600 font-semibold">${errorMessageText}</span>`;
+                interactiveQuizArea.classList.add('hidden'); 
+                showJsonButton.classList.add('hidden');
+                showQuizUIButton.classList.add('hidden');
+            } finally {
+                progressIndicator.classList.add('hidden');
+                generateQuizButton.disabled = false;
+                generateQuizButton.textContent = 'Generate Quiz';
+            }
+        });
+    </script>
+</body>
+</html>
